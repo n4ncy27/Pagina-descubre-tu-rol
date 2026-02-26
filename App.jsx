@@ -1842,7 +1842,7 @@ function ProfileChart({ roleCount, total }) {
 
   return (
     <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: "32px", boxShadow: "var(--shadow)" }}>
-      <div style={{ fontFamily: "var(--font-head)", fontSize: "1.4rem", fontWeight: 700, marginBottom: 32, letterSpacing: "-0.02em", display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ fontFamily: "var(--font-head)", fontSize: "1.4rem", fontWeight: 700, marginBottom: 56, letterSpacing: "-0.02em", display: "flex", alignItems: "center", gap: 10 }}>
         <span style={{ display: "block", width: 4, height: 20, background: "var(--primary)", borderRadius: 2 }} />
         Distribución actual de perfiles
       </div>
