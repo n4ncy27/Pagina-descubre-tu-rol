@@ -1853,8 +1853,8 @@ function ProfileChart({ roleCount, total }) {
         gap: 24, 
         alignItems: "flex-end", 
         justifyContent: "center", 
-        height: BAR_HEIGHT + 60, 
-        paddingBottom: 0,
+        height: BAR_HEIGHT + 120, 
+        paddingTop: 60,
         marginBottom: 48,
         borderBottom: "1px solid var(--border)",
         paddingBottom: 32
