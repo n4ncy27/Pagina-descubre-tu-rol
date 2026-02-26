@@ -84,6 +84,8 @@ function convertScore(raw) {
 function calculateResults(answers) {
   const scores = { A: 0, B: 0, C: 0, D: 0 };
   QUESTIONS.forEach((q) => {
+    // Excluir pregunta 1 (de ejemplo)
+    if (q.id === 1) return;
     const raw = answers[q.id];
     if (raw != null) {
       scores[q.category] += convertScore(raw);
@@ -101,6 +103,7 @@ function getDominantRole(scores) {
 const STORAGE_KEYS = {
   USERS: "swsurvey:users",
   RESPONSES: (uid) => `swsurvey:resp:${uid}`,
+  HISTORY: (uid) => `swsurvey:hist:${uid}`,
 };
 
 const DEFAULT_ADMIN = {
@@ -118,7 +121,13 @@ async function storageGet(key) {
     const res = await window.storage.get(key);
     return res ? res.value : null;
   } catch {
-    return memoryStore[key] ?? null;
+    // Try localStorage as fallback
+    try {
+      const val = localStorage.getItem(key);
+      return val;
+    } catch {
+      return memoryStore[key] ?? null;
+    }
   }
 }
 
@@ -127,7 +136,12 @@ async function storageSet(key, value) {
   try {
     await window.storage.set(key, value);
   } catch {
-    // keep in memory only
+    // Try localStorage as fallback
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // keep in memory only
+    }
   }
 }
 
@@ -147,6 +161,100 @@ async function loadResponse(uid) {
 
 async function saveResponse(uid, data) {
   await storageSet(STORAGE_KEYS.RESPONSES(uid), JSON.stringify(data));
+}
+
+async function loadHistory(uid) {
+  const raw = await storageGet(STORAGE_KEYS.HISTORY(uid));
+  return raw ? JSON.parse(raw) : [];
+}
+
+async function appendToHistory(uid, data) {
+  const history = await loadHistory(uid);
+  history.push(data);
+  await storageSet(STORAGE_KEYS.HISTORY(uid), JSON.stringify(history));
+}
+
+// ─── SAMPLE DATA GENERATION ────────────────────────────────────────────────────
+
+const SAMPLE_NAMES = [
+  "Ana García", "Carlos Martínez", "Diana López", "Emilio Ruiz", "Fátima Núñez",
+  "Gabriela Sanz", "Héctor Domínguez", "Iris Jiménez", "Javier Vega", "Kiara Robles",
+  "Luis Castillo", "Marina Silva", "Nicolás Flores", "Olga Benítez", "Pablo Navarro",
+  "Quintino De la Rosa", "Roxana Rioja", "Sergio Herrera", "Tatiana Molina", "Ulises Araya"
+];
+
+function getRandomElement(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function generateRandomUsername() {
+  return `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+function generateRandomAnswers() {
+  const answers = {};
+  for (let i = 1; i <= 37; i++) {
+    answers[i] = Math.floor(Math.random() * 10) + 1;
+  }
+  return answers;
+}
+
+async function generateSampleData() {
+  const existingUsers = await loadUsers();
+  const adminUser = existingUsers.find((u) => u.role === "admin");
+  const existingParticipants = existingUsers.filter((u) => u.role === "user");
+  
+  const genders = ["masculino", "femenino", "otro", "prefiero_no_decir"];
+  const newUsers = [];
+  for (let i = 0; i < 499; i++) {
+    newUsers.push({
+      id: `user_${Date.now()}_${i}`,
+      cedula: `${100000000 + i}`,
+      nombre: `${getRandomElement(SAMPLE_NAMES)} - ${i + 1}`,
+      genero: getRandomElement(genders),
+      role: "user",
+    });
+  }
+
+  // Preservar admin + participantes existentes + nuevos participantes
+  const allUsers = [adminUser || DEFAULT_ADMIN, ...existingParticipants, ...newUsers];
+  await saveUsers(allUsers);
+
+  for (const user of newUsers) {
+    const answers = generateRandomAnswers();
+    const scores = calculateResults(answers);
+    const dominant = getDominantRole(scores);
+    const responseData = {
+      completed: true,
+      answers,
+      scores,
+      dominant,
+      submittedAt: new Date().toISOString(),
+    };
+    await saveResponse(user.id, responseData);
+    await appendToHistory(user.id, responseData);
+  }
+
+  return newUsers.length;
+}
+
+async function clearAllData() {
+  const adminUser = DEFAULT_ADMIN;
+  await saveUsers([adminUser]);
+  const keys = Object.keys(memoryStore);
+  keys.forEach((key) => {
+    if (key.startsWith("swsurvey:resp:") || key.startsWith("swsurvey:hist:")) {
+      delete memoryStore[key];
+    }
+  });
+  // Also from localStorage
+  try {
+    Object.keys(localStorage).forEach((key) => {
+      if (key.startsWith("swsurvey:resp:") || key.startsWith("swsurvey:hist:")) {
+        localStorage.removeItem(key);
+      }
+    });
+  } catch {}
 }
 
 // ─── STYLES ───────────────────────────────────────────────────────────────────
@@ -262,6 +370,104 @@ const STYLE = `
   .btn-sm { padding: 6px 14px; font-size: 0.8rem; }
   .btn-lg { padding: 14px 32px; font-size: 0.95rem; border-radius: var(--radius); }
   .btn:disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+
+  /* ── ACTION BUTTONS (GENERATE & CLEAR) ── */
+  .btn-action-generate {
+    background: linear-gradient(135deg, #1A7A6E 0%, #0D5A52 100%);
+    color: #fff;
+    border: 2px solid #0D5A52;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 4px 15px rgba(26, 122, 110, 0.3);
+  }
+  .btn-action-generate::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+    transition: left 0.5s ease;
+  }
+  .btn-action-generate:hover {
+    background: linear-gradient(135deg, #0D5A52 0%, #084840 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(26, 122, 110, 0.5);
+  }
+  .btn-action-generate:hover::before { left: 100%; }
+  .btn-action-generate:active { transform: translateY(0); }
+
+  .btn-action-clear {
+    background: linear-gradient(135deg, #B5621C 0%, #8B4513 100%);
+    color: #fff;
+    border: 2px solid #8B4513;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 4px 15px rgba(181, 98, 28, 0.3);
+  }
+  .btn-action-clear::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+    transition: left 0.5s ease;
+  }
+  .btn-action-clear:hover {
+    background: linear-gradient(135deg, #8B4513 0%, #6B3410 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(181, 98, 28, 0.5);
+  }
+  .btn-action-clear:hover { left: 100%; }
+  .btn-action-clear:active { transform: translateY(0); }
+
+  /* ── SUBTLE ACTION BUTTONS ── */
+  .btn-action-subtle {
+    padding: 8px 16px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    border-radius: 8px;
+    border: 1.5px solid;
+    background: var(--surface);
+    cursor: pointer;
+    transition: all 0.22s ease;
+    text-transform: uppercase;
+  }
+  .btn-action-subtle.generate {
+    color: #0D5A52;
+    border-color: rgba(13, 90, 82, 0.25);
+    background: rgba(13, 90, 82, 0.03);
+  }
+  .btn-action-subtle.generate:hover {
+    background: rgba(13, 90, 82, 0.08);
+    border-color: rgba(13, 90, 82, 0.5);
+    color: #084840;
+  }
+  .btn-action-subtle.clear {
+    color: #8B4513;
+    border-color: rgba(139, 69, 19, 0.25);
+    background: rgba(139, 69, 19, 0.03);
+  }
+  .btn-action-subtle.clear:hover {
+    background: rgba(139, 69, 19, 0.08);
+    border-color: rgba(139, 69, 19, 0.5);
+    color: #6B3410;
+  }
+
+  .action-buttons-group {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    align-items: center;
+  }
 
   /* ── CARDS ── */
   .card {
@@ -836,7 +1042,7 @@ function Navbar({ user, onLogout }) {
         <div className="nav-right">
           <div className="nav-divider" />
           <div className="nav-user-block">
-            <span className="nav-user-name">{user.name}</span>
+            <span className="nav-user-name">{user.nombre || user.name}</span>
             <span className="nav-user-role">{user.role === "admin" ? "Administrador" : "Participante"}</span>
           </div>
           <button className="btn btn-secondary btn-sm" onClick={onLogout} style={{ marginLeft: 4 }}>
@@ -852,14 +1058,52 @@ function Navbar({ user, onLogout }) {
 
 function LoginScreen({ onLogin }) {
   const [tab, setTab] = useState("user");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showRegister, setShowRegister] = useState(false);
+
+  // Participante: cédula, nombre, género
+  const [cedula, setCedula] = useState("");
+  const [nombre, setNombre] = useState("");
+  const [genero, setGenero] = useState("");
+
+  // Admin: username, password
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
 
-  const handleSubmit = async () => {
+  const handleSubmitParticipant = async () => {
+    if (!cedula.trim() || !nombre.trim() || !genero) { 
+      setError("Completa todos los campos."); 
+      return; 
+    }
+    setError("");
+    setLoading(true);
+    try {
+      await new Promise((r) => setTimeout(r, 300));
+      const users = await loadUsers();
+      // Buscar o crear participante por cédula
+      let participant = users.find((u) => u.role === "user" && u.cedula === cedula.trim());
+      
+      if (!participant) {
+        // Crear participante nuevo
+        participant = {
+          id: `user_${cedula.trim()}_${Date.now()}`,
+          cedula: cedula.trim(),
+          nombre: nombre.trim(),
+          genero: genero,
+          role: "user",
+        };
+        await saveUsers([...users, participant]);
+      }
+      
+      onLogin(participant);
+    } catch (err) {
+      setError("Error al conectar. Intenta de nuevo.");
+    }
+    setLoading(false);
+  };
+
+  const handleSubmitAdmin = async () => {
     if (!username.trim() || !password) { setError("Completa todos los campos."); return; }
     setError("");
     setLoading(true);
@@ -867,7 +1111,7 @@ function LoginScreen({ onLogin }) {
       await new Promise((r) => setTimeout(r, 300));
       const users = await loadUsers();
       const found = users.find(
-        (u) => u.username === username.trim() && u.password === password && u.role === tab
+        (u) => u.username === username.trim() && u.password === password && u.role === "admin"
       );
       if (found) {
         onLogin(found);
@@ -880,7 +1124,12 @@ function LoginScreen({ onLogin }) {
     setLoading(false);
   };
 
-  const handleKeyDown = (e) => { if (e.key === "Enter") handleSubmit(); };
+  const handleKeyDown = (e) => { 
+    if (e.key === "Enter") {
+      if (tab === "user") handleSubmitParticipant();
+      else handleSubmitAdmin();
+    }
+  };
 
   return (
     <div className="login-screen">
@@ -899,7 +1148,7 @@ function LoginScreen({ onLogin }) {
             Descubre tu <em>rol natural</em> en proyectos de software
           </h1>
           <p>
-            Una evaluación basada en evidencia para identificar cómo contribuyes mejor en equipos de desarrollo. Responde con honestidad y obtén tu perfil.
+            Una evaluación basada en evidencia para identificar cómo contribuyes mejor en equipos de desarrollo. Responde con honestidad.
           </p>
 
           <div className="login-hero-roles">
@@ -914,9 +1163,9 @@ function LoginScreen({ onLogin }) {
         {/* How it works — quick steps */}
         <div className="login-steps">
           {[
-            { n: "1", title: "Regístrate o inicia sesión", desc: "Crea tu cuenta en segundos o accede con tus credenciales." },
+            { n: "1", title: "Inicia sesión con tu información", desc: "Ingresa tu cédula, nombre y género para comenzar." },
             { n: "2", title: "Responde las 37 afirmaciones", desc: "Selecciona del 1 al 10 qué tanto se parece cada afirmación a ti." },
-            { n: "3", title: "Obtén tu perfil dominante", desc: "Descubre si eres Clarificador, Ideador, Desarrollador o Implementador." },
+            { n: "3", title: "Espera los resultados", desc: "El administrador verá tu perfil y podrá comunicarte los resultados." },
           ].map((s, i, arr) => (
             <div className="login-step" key={s.n}>
               <div className="login-step-line-wrap">
@@ -933,7 +1182,7 @@ function LoginScreen({ onLogin }) {
 
         <div className="login-panel-header">
           <h2>Iniciar <span style={{ color: "var(--primary)" }}>sesión</span></h2>
-          <p>Ingresa con tus credenciales para continuar</p>
+          <p>Selecciona tu rol para continuar</p>
         </div>
 
         <div className="login-tabs">
@@ -947,59 +1196,96 @@ function LoginScreen({ onLogin }) {
 
         <div>
           {error && <div className="error-msg">{error}</div>}
-          <div className="form-group">
-            <label className="form-label">Usuario</label>
-            <input
-              className="form-input"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Tu nombre de usuario"
-            />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Contraseña</label>
-            <div className="password-wrapper">
-              <input
-                className="form-input"
-                type={showPass ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="••••••••"
-              />
-              <button className="password-toggle" onClick={() => setShowPass(!showPass)} tabIndex={-1} type="button">
-                {showPass
-                  ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                  : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                }
+
+          {tab === "user" ? (
+            <>
+              <div className="form-group">
+                <label className="form-label">Cédula</label>
+                <input
+                  className="form-input"
+                  value={cedula}
+                  onChange={(e) => setCedula(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Tu número de cédula"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Nombre</label>
+                <input
+                  className="form-input"
+                  value={nombre}
+                  onChange={(e) => setNombre(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Tu nombre completo"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Género</label>
+                <select
+                  className="form-input"
+                  value={genero}
+                  onChange={(e) => setGenero(e.target.value)}
+                  style={{ cursor: "pointer" }}
+                >
+                  <option value="">Selecciona tu género</option>
+                  <option value="masculino">Masculino</option>
+                  <option value="femenino">Femenino</option>
+                  <option value="otro">Otro</option>
+                  <option value="prefiero_no_decir">Prefiero no decir</option>
+                </select>
+              </div>
+              <button
+                className="btn btn-primary btn-lg"
+                style={{ width: "100%", justifyContent: "center", marginTop: 8 }}
+                onClick={handleSubmitParticipant}
+                disabled={loading}
+              >
+                {loading ? "Accediendo..." : "Comenzar evaluación"}
               </button>
-            </div>
-          </div>
-          <button
-            className="btn btn-primary btn-lg"
-            style={{ width: "100%", justifyContent: "center", marginTop: 8 }}
-            onClick={handleSubmit}
-            disabled={loading}
-          >
-            {loading ? "Verificando..." : "Ingresar"}
-          </button>
+            </>
+          ) : (
+            <>
+              <div className="form-group">
+                <label className="form-label">Usuario</label>
+                <input
+                  className="form-input"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Tu nombre de usuario"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Contraseña</label>
+                <div className="password-wrapper">
+                  <input
+                    className="form-input"
+                    type={showPass ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="••••••••"
+                  />
+                  <button className="password-toggle" onClick={() => setShowPass(!showPass)} tabIndex={-1} type="button">
+                    {showPass
+                      ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                      : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    }
+                  </button>
+                </div>
+              </div>
+              <button
+                className="btn btn-primary btn-lg"
+                style={{ width: "100%", justifyContent: "center", marginTop: 8 }}
+                onClick={handleSubmitAdmin}
+                disabled={loading}
+              >
+                {loading ? "Verificando..." : "Ingresar"}
+              </button>
+            </>
+          )}
         </div>
-
-        {tab === "user" && (
-          <div className="register-link">
-            ¿No tienes cuenta?{" "}
-            <button onClick={() => setShowRegister(true)}>Registrarse</button>
-          </div>
-        )}
       </div>
-
-      {showRegister && (
-        <RegisterModal
-          onClose={() => setShowRegister(false)}
-          onRegistered={(u) => { setShowRegister(false); onLogin(u); }}
-        />
-      )}
     </div>
   );
 }
@@ -1205,18 +1491,23 @@ function WelcomeScreen({ user, existingResponse, onStart, onViewResults }) {
 const PAGE_SIZE = 5;
 
 function SurveyScreen({ user, onComplete }) {
-  const totalPages = Math.ceil(QUESTIONS.length / PAGE_SIZE);
+  // Pregunta 1 = ejemplo (no cuenta), preguntas reales = 2..37
+  const EXAMPLE_QUESTION = QUESTIONS[0]; // id=1
+  const REAL_QUESTIONS = QUESTIONS.slice(1); // id=2..37
+
+  const totalPages = Math.ceil(REAL_QUESTIONS.length / PAGE_SIZE);
   const [page, setPage] = useState(0);
   const [answers, setAnswers] = useState({});
+  const [exampleAnswer, setExampleAnswer] = useState(null);
   const topRef = useRef(null);
 
   const startIdx = page * PAGE_SIZE;
-  const pageQuestions = QUESTIONS.slice(startIdx, startIdx + PAGE_SIZE);
+  const pageQuestions = REAL_QUESTIONS.slice(startIdx, startIdx + PAGE_SIZE);
   const answered = Object.keys(answers).length;
-  const progress = (answered / QUESTIONS.length) * 100;
+  const progress = (answered / REAL_QUESTIONS.length) * 100;
 
   const pageAnswered = pageQuestions.every((q) => answers[q.id] != null);
-  const allAnswered = QUESTIONS.every((q) => answers[q.id] != null);
+  const allAnswered = REAL_QUESTIONS.every((q) => answers[q.id] != null);
 
   const scrollTop = () => topRef.current?.scrollIntoView({ behavior: "smooth" });
 
@@ -1236,6 +1527,7 @@ function SurveyScreen({ user, onComplete }) {
     const dominant = getDominantRole(scores);
     const responseData = { answers, completed: true, submittedAt: new Date().toISOString(), scores, dominant };
     await saveResponse(user.id, responseData);
+    await appendToHistory(user.id, responseData);
     onComplete(responseData);
   };
 
@@ -1251,11 +1543,56 @@ function SurveyScreen({ user, onComplete }) {
         </div>
       </div>
 
+      {/* ── BLOQUE DE EJEMPLO: solo se muestra en la primera página ── */}
+      {page === 0 && (
+        <div style={{
+          border: "2px dashed var(--accent)",
+          borderRadius: "12px",
+          background: "rgba(181,98,28,0.04)",
+          padding: "4px",
+          marginBottom: "28px",
+        }}>
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            background: "var(--accent)",
+            borderRadius: "8px 8px 0 0",
+            padding: "10px 18px",
+          }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+            <span style={{ color: "#fff", fontWeight: 700, fontSize: "0.82rem", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+              Pregunta de ejemplo — No cuenta para la evaluación
+            </span>
+          </div>
+          <div style={{ padding: "4px 4px 0" }}>
+            <QuestionCard
+              question={EXAMPLE_QUESTION}
+              index={-1}
+              value={exampleAnswer}
+              onChange={(val) => setExampleAnswer(val)}
+              isExample={true}
+            />
+          </div>
+          <div style={{
+            padding: "12px 18px",
+            background: "rgba(181,98,28,0.06)",
+            borderRadius: "0 0 8px 8px",
+            fontSize: "0.82rem",
+            color: "var(--accent)",
+            fontStyle: "italic",
+            lineHeight: "1.5",
+          }}>
+            Esta afirmación es solo un ejemplo para que practiques cómo responder. Tu selección aquí <strong>no afecta tu resultado final</strong>. Cuando te sientas listo, responde las afirmaciones reales a continuación.
+          </div>
+        </div>
+      )}
+
       <div className="progress-bar-wrap">
         <div className="progress-bar-label">
           <div>
             <div style={{ fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--text-muted)", marginBottom: 4 }}>Progreso de respuesta</div>
-            <div style={{ fontSize: "0.82rem", color: "var(--text-light)" }}>{answered} de {QUESTIONS.length} afirmaciones completadas</div>
+            <div style={{ fontSize: "0.82rem", color: "var(--text-light)" }}>{answered} de {REAL_QUESTIONS.length} afirmaciones completadas</div>
           </div>
           <div className="progress-pct">{Math.round(progress)}<small>%</small></div>
         </div>
@@ -1285,7 +1622,7 @@ function SurveyScreen({ user, onComplete }) {
           </button>
         ) : (
           <button className="btn btn-primary" onClick={handleSubmit} disabled={!allAnswered}>
-            Ver mis resultados
+            Enviar respuestas
           </button>
         )}
       </div>
@@ -1293,12 +1630,14 @@ function SurveyScreen({ user, onComplete }) {
   );
 }
 
-function QuestionCard({ question, index, value, onChange }) {
+function QuestionCard({ question, index, value, onChange, isExample }) {
   const labels = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
   return (
-    <div className={`question-card ${value != null ? "answered" : ""}`}>
-      <div className="question-number">Afirmación {index + 1}</div>
+    <div className={`question-card ${value != null ? "answered" : ""}`} style={isExample ? { borderColor: "var(--accent)", background: "#fffdf9" } : {}}>
+      <div className="question-number" style={isExample ? { color: "var(--accent)" } : {}}>
+        {isExample ? "Afirmación de ejemplo" : `Afirmación ${index + 1}`}
+      </div>
       <div className="question-text">{question.text}</div>
       <div className="scale-wrapper">
         <div className="scale-labels">
@@ -1313,6 +1652,7 @@ function QuestionCard({ question, index, value, onChange }) {
               <button
                 key={n}
                 className={`scale-btn ${value === n ? "selected" : ""}`}
+                style={isExample && value === n ? { background: "var(--accent)", borderColor: "var(--accent)" } : {}}
                 onClick={() => onChange(n)}
               >
                 {n}
@@ -1328,60 +1668,375 @@ function QuestionCard({ question, index, value, onChange }) {
 // ─── RESULTS ─────────────────────────────────────────────────────────────────
 
 function ResultsScreen({ responseData, onRetake }) {
-  const { scores, dominant } = responseData;
-  const maxPossible = { A: 45, B: 45, C: 50, D: 45 };
-  const dominantRole = ROLES[dominant];
-
   return (
     <div className="results-layout">
-
-      {/* Hero */}
       <div className="results-hero">
         <div className="results-hero-inner">
-          <div className="results-hero-content">
-            <div className="results-hero-badge">
-              <div className="results-hero-badge-dot" style={{ background: dominantRole.color }} />
-              Tu perfil dominante
+          <div className="results-hero-content" style={{ 
+            textAlign: "center", 
+            maxWidth: 580,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: "100vh",
+            gap: 0
+          }}>
+            {/* Checkmark animado */}
+            <div style={{
+              width: "120px",
+              height: "120px",
+              background: "var(--primary)",
+              borderRadius: "50%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: 48,
+              boxShadow: "0 8px 32px rgba(27,79,138,0.25)",
+              animation: "scaleIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)"
+            }}>
+              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
             </div>
-            <h2><span className="eres-word">Eres</span> <span style={{ color: dominantRole.color, filter: "brightness(1.4) saturate(1.2)" }}>{dominantRole.name}</span></h2>
-            <div style={{ width: 48, height: 2, borderRadius: 2, background: "rgba(255,255,255,0.3)", margin: "0 auto 22px" }} />
-            <p>{dominantRole.description}</p>
+
+            {/* Título principal */}
+            <h2 style={{ 
+              margin: 0,
+              marginBottom: 16,
+              fontSize: "2.8rem",
+              fontWeight: 800,
+              lineHeight: "1.2",
+              letterSpacing: "-0.02em",
+              background: "linear-gradient(135deg, var(--primary) 0%, #0d47a1 100%)",
+              backgroundClip: "text",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent"
+            }}>
+              ¡Evaluación completada!
+            </h2>
+
+            {/* Subtítulo */}
+            <p style={{ 
+              fontSize: "1rem", 
+              lineHeight: "1.7", 
+              color: "var(--text-muted)", 
+              marginBottom: 40,
+              fontWeight: 500
+            }}>
+              Gracias por responder con honestidad. Tu evaluación ha sido registrada exitosamente.
+            </p>
+
+            {/* Caja de información mejorada */}
+            <div style={{ 
+              background: "linear-gradient(135deg, var(--primary-light) 0%, rgba(27,79,138,0.08) 100%)",
+              border: "2px solid var(--primary)",
+              borderRadius: "16px", 
+              padding: "32px 28px",
+              marginBottom: 40,
+              boxShadow: "0 4px 24px rgba(27,79,138,0.12)",
+              backdropFilter: "blur(8px)"
+            }}>
+              <div style={{
+                display: "flex",
+                gap: 12,
+                alignItems: "flex-start",
+                marginBottom: 12
+              }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2.5" style={{ flexShrink: 0, marginTop: 2 }}>
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <path d="M12 8v4m0 4h.01"></path>
+                </svg>
+                <p style={{ 
+                  margin: 0, 
+                  color: "var(--primary)", 
+                  fontWeight: 700,
+                  fontSize: "1.05rem",
+                  lineHeight: "1.4"
+                }}>
+                  Los resultados están siendo analizados por el equipo administrativo.
+                </p>
+              </div>
+              <p style={{ 
+                margin: 0, 
+                color: "var(--text-muted)", 
+                fontSize: "0.95rem",
+                lineHeight: "1.5",
+                paddingLeft: 32
+              }}>
+                Pronto te comunicarán tu perfil profesional y recomendaciones personalizadas.
+              </p>
+            </div>
+
+            {/* Botón mejorado */}
+            <button 
+              className="btn btn-primary btn-lg"
+              onClick={onRetake}
+              style={{
+                padding: "14px 48px",
+                fontSize: "1rem",
+                fontWeight: 600,
+                letterSpacing: "0.02em",
+                boxShadow: "0 4px 16px rgba(27,79,138,0.25)",
+                transition: "all 0.3s ease"
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.transform = "translateY(-2px)";
+                e.target.style.boxShadow = "0 8px 24px rgba(27,79,138,0.35)";
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.transform = "translateY(0)";
+                e.target.style.boxShadow = "0 4px 16px rgba(27,79,138,0.25)";
+              }}
+            >
+              Salir
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Cards section */}
-      <div className="results-section-label">Puntuación por perfil</div>
-      <div className="results-grid">
+      <style>{`
+        @keyframes scaleIn {
+          from {
+            transform: scale(0);
+            opacity: 0;
+          }
+          to {
+            transform: scale(1);
+            opacity: 1;
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ─── PROFILE CHART ────────────────────────────────────────────────────────────
+
+function ProfileChart({ roleCount, total }) {
+  const maxCount = Math.max(...Object.values(roleCount), 1);
+  const BAR_HEIGHT = 220;
+
+  return (
+    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: "32px", boxShadow: "var(--shadow)" }}>
+      <div style={{ fontFamily: "var(--font-head)", fontSize: "1.4rem", fontWeight: 700, marginBottom: 32, letterSpacing: "-0.02em", display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ display: "block", width: 4, height: 20, background: "var(--primary)", borderRadius: 2 }} />
+        Distribución actual de perfiles
+      </div>
+
+      {/* Bars */}
+      <div style={{ 
+        display: "flex", 
+        gap: 24, 
+        alignItems: "flex-end", 
+        justifyContent: "center", 
+        height: BAR_HEIGHT + 60, 
+        paddingBottom: 0,
+        marginBottom: 48,
+        borderBottom: "1px solid var(--border)",
+        paddingBottom: 32
+      }}>
         {Object.entries(ROLES).map(([key, role]) => {
-          const score = scores[key];
-          const max = maxPossible[key];
-          const pct = Math.round((score / max) * 100);
-          const isDominant = key === dominant;
+          const count = roleCount[key] || 0;
+          const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+          const barH = total > 0 ? Math.round((count / maxCount) * BAR_HEIGHT) : 0;
           return (
-            <div
-              key={key}
-              className={`role-result-card ${isDominant ? "dominant" : ""}`}
-              style={{ borderColor: isDominant ? role.color : undefined }}
-            >
-              <div className="role-result-card-top">
-                <div className="role-result-dot" style={{ background: role.color }} />
-                <div className="role-result-name" style={{ color: role.color }}>{role.name}</div>
+            <div key={key} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, flex: 1, maxWidth: 140 }}>
+              <div style={{ fontSize: "0.82rem", fontWeight: 700, color: role.color }}>{pct}%</div>
+              <div style={{ fontSize: "1.6rem", fontWeight: 800, color: role.color, lineHeight: 1 }}>{count}</div>
+              <div style={{ position: "relative", width: "100%", display: "flex", justifyContent: "center" }}>
+                <div style={{
+                  width: "72%", height: `${barH}px`, minHeight: 4,
+                  background: `linear-gradient(to top, ${role.color}, ${role.color}cc)`,
+                  borderRadius: "6px 6px 0 0",
+                  transition: "height 0.6s ease",
+                  position: "relative",
+                  boxShadow: `0 -4px 16px ${role.color}33`,
+                }}>
+                  <div style={{
+                    position: "absolute", top: 0, left: 0, right: 0, height: "40%",
+                    background: "rgba(255,255,255,0.15)", borderRadius: "6px 6px 0 0",
+                  }} />
+                </div>
               </div>
-              <div className="role-result-score" style={{ color: role.color }}>{score}</div>
-              <div className="role-result-pct" style={{ color: role.color, opacity: 0.7 }}>{pct}% de {max} pts posibles</div>
-              <div className="role-result-bar-track">
-                <div className="role-result-bar-fill" style={{ width: `${pct}%`, background: role.color }} />
+              {/* X axis line */}
+              <div style={{ width: "100%", height: 2, background: "var(--border)", borderRadius: 2 }} />
+              <div style={{ padding: "8px 6px", background: role.light, borderRadius: 8, border: `1px solid ${role.border}`, textAlign: "center", width: "100%" }}>
+                <div style={{ fontWeight: 700, fontSize: "0.78rem", color: role.color }}>{role.name}</div>
               </div>
-              <div className="role-result-desc">{role.description}</div>
             </div>
           );
         })}
       </div>
 
-      <div style={{ textAlign: "center", marginTop: 8 }}>
-        <button className="btn btn-secondary" onClick={onRetake}>Responder de nuevo</button>
+      {/* Donut chart - Two column layout */}
+      <div style={{ 
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 48,
+        alignItems: "center",
+        justifyItems: "center"
+      }}>
+        {/* Left: Donut */}
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
+          <svg width="200" height="200" viewBox="0 0 160 160">
+            {(() => {
+              const cx = 80, cy = 80, r = 60, strokeW = 26;
+              const circumference = 2 * Math.PI * r;
+              let offset = 0;
+              const segments = Object.entries(ROLES).map(([key, role]) => {
+                const count = roleCount[key] || 0;
+                const pct = total > 0 ? count / total : 0;
+                const dash = pct * circumference;
+                const el = (
+                  <circle key={key} cx={cx} cy={cy} r={r}
+                    fill="none" stroke={role.color} strokeWidth={strokeW}
+                    strokeDasharray={`${dash} ${circumference - dash}`}
+                    strokeDashoffset={-offset}
+                    style={{ transform: "rotate(-90deg)", transformOrigin: "80px 80px", transition: "stroke-dasharray 0.6s ease" }}
+                  />
+                );
+                offset += dash;
+                return el;
+              });
+              return (
+                <>
+                  <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--border)" strokeWidth={strokeW} />
+                  {segments}
+                  <text x={cx} y={cy - 8} textAnchor="middle" fontSize="24" fontWeight="800" fill="var(--text)">{total}</text>
+                  <text x={cx} y={cy + 14} textAnchor="middle" fontSize="10" fill="var(--text-muted)" fontWeight="600" letterSpacing="1">TOTAL</text>
+                </>
+              );
+            })()}
+          </svg>
+        </div>
+
+        {/* Right: Legend */}
+        <div style={{ 
+          display: "flex", 
+          flexDirection: "column", 
+          gap: 14,
+          justifyContent: "center"
+        }}>
+          {Object.entries(ROLES).map(([key, role]) => {
+            const count = roleCount[key] || 0;
+            const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+            return (
+              <div key={key} style={{ 
+                display: "flex", 
+                alignItems: "center", 
+                gap: 10,
+                padding: "10px 14px",
+                background: "var(--surface-hover)",
+                borderRadius: 8,
+                border: `1px solid ${role.border}20`
+              }}>
+                <div style={{ width: 14, height: 14, borderRadius: 3, background: role.color, flexShrink: 0 }} />
+                <span style={{ fontSize: "0.9rem", color: "var(--text)", fontWeight: 600, flex: 1 }}>{role.name}</span>
+                <span style={{ fontSize: "0.85rem", color: "var(--text)", fontWeight: 700 }}>{count}</span>
+                <span style={{ fontSize: "0.85rem", color: role.color, fontWeight: 700 }}>({pct}%)</span>
+              </div>
+            );
+          })}
+        </div>
       </div>
+
+      {/* Responsive fallback for small screens */}
+      <style>{`
+        @media (max-width: 900px) {
+          [data-profile-grid] {
+            grid-template-columns: 1fr !important;
+            gap: 32px !important;
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ─── ALL TESTS TAB ────────────────────────────────────────────────────────────
+
+function AllTestsTab({ users, historiesByUser, onExportCSV, onExportJSON, onImport }) {
+  const allTests = [];
+  users.forEach((u) => {
+    const hist = historiesByUser[u.id] || [];
+    hist.forEach((entry, idx) => {
+      allTests.push({ user: u, entry, attemptNum: idx + 1 });
+    });
+  });
+  // Sort newest first
+  allTests.sort((a, b) => new Date(b.entry.submittedAt) - new Date(a.entry.submittedAt));
+
+  return (
+    <div>
+      {/* Import / Export buttons */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+        <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-muted)" }}>
+          Total de registros históricos: <strong style={{ color: "var(--text)" }}>{allTests.length}</strong>
+        </p>
+        <div style={{ display: "flex", gap: 10 }}>
+          <label style={{
+            padding: "8px 16px", borderRadius: 8, border: "1.5px solid rgba(27,79,138,0.3)",
+            background: "var(--primary-light)", color: "var(--primary)", fontWeight: 600, fontSize: "0.8rem",
+            cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.01em",
+          }}>
+            Importar JSON
+            <input type="file" accept=".json" style={{ display: "none" }} onChange={onImport} />
+          </label>
+          <button className="btn-action-subtle generate" onClick={onExportCSV}>Exportar CSV</button>
+          <button className="btn-action-subtle generate" onClick={onExportJSON}>Exportar JSON</button>
+        </div>
+      </div>
+
+      {allTests.length === 0 ? (
+        <div className="empty-state">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9 17H5a2 2 0 00-2 2v1h18v-1a2 2 0 00-2-2h-4m-4-14v10m0 0l3-3m-3 3l-3-3"/></svg>
+          <p>No hay pruebas registradas aún</p>
+        </div>
+      ) : (
+        <div className="users-table-wrap">
+          <table className="users-table">
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Cédula</th>
+                <th>Género</th>
+                <th>Intento</th>
+                <th>Perfil dominante</th>
+                <th>A</th><th>B</th><th>C</th><th>D</th>
+                <th>Fecha</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allTests.map(({ user: u, entry, attemptNum }, idx) => {
+                const role = ROLES[entry.dominant];
+                return (
+                  <tr key={idx}>
+                    <td><strong style={{ color: "var(--text)" }}>{u.nombre}</strong></td>
+                    <td style={{ color: "var(--text-muted)" }}>{u.cedula}</td>
+                    <td style={{ textTransform: "capitalize", color: "var(--text-muted)" }}>{u.genero?.replace("_", " ") || "—"}</td>
+                    <td style={{ textAlign: "center" }}>
+                      <span style={{ background: "var(--primary-light)", color: "var(--primary)", fontWeight: 700, fontSize: "0.78rem", padding: "2px 8px", borderRadius: 100 }}>#{attemptNum}</span>
+                    </td>
+                    <td>
+                      <span className="role-badge" style={{ background: role.light, color: role.color, border: `1px solid ${role.border}` }}>
+                        {role.name}
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: 700, color: ROLES.A.color }}>{entry.scores?.A ?? "—"}</td>
+                    <td style={{ fontWeight: 700, color: ROLES.B.color }}>{entry.scores?.B ?? "—"}</td>
+                    <td style={{ fontWeight: 700, color: ROLES.C.color }}>{entry.scores?.C ?? "—"}</td>
+                    <td style={{ fontWeight: 700, color: ROLES.D.color }}>{entry.scores?.D ?? "—"}</td>
+                    <td style={{ color: "var(--text-muted)", fontSize: "0.82rem" }}>
+                      {new Date(entry.submittedAt).toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -1391,28 +2046,134 @@ function ResultsScreen({ responseData, onRetake }) {
 function AdminDashboard({ onViewUser }) {
   const [users, setUsers] = useState([]);
   const [responses, setResponses] = useState({});
+  const [histories, setHistories] = useState({});
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [activeTab, setActiveTab] = useState("participantes");
+
+  const loadData = async () => {
+    setLoading(true);
+    const allUsers = await loadUsers();
+    const participants = allUsers.filter((u) => u.role === "user");
+    setUsers(participants);
+    const resp = {}, hist = {};
+    await Promise.all(participants.map(async (u) => {
+      resp[u.id] = await loadResponse(u.id);
+      hist[u.id] = await loadHistory(u.id);
+    }));
+    setResponses(resp);
+    setHistories(hist);
+    setLoading(false);
+  };
 
   useEffect(() => {
-    (async () => {
-      const allUsers = await loadUsers();
-      const participants = allUsers.filter((u) => u.role === "user");
-      setUsers(participants);
-      const resp = {};
-      await Promise.all(participants.map(async (u) => {
-        resp[u.id] = await loadResponse(u.id);
-      }));
-      setResponses(resp);
-      setLoading(false);
-    })();
-  }, []);
+    loadData();
+  }, [refreshKey]);
+
+  const handleGenerateSampleData = async () => {
+    if (window.confirm("¿Generar 499 datos de ejemplo? Esto puede tomar unos segundos.")) {
+      await generateSampleData();
+      setRefreshKey((k) => k + 1);
+    }
+  };
+
+  const handleClearAllData = async () => {
+    if (window.confirm("⚠️ ¿Limpiar TODOS los datos? Esta acción no se puede deshacer. Se mantendrá solo la cuenta de administrador.")) {
+      await clearAllData();
+      setRefreshKey((k) => k + 1);
+    }
+  };
+
+  const handleExportCSV = () => {
+    const rows = [["Nombre", "Cedula", "Genero", "Intento", "Perfil", "Puntaje A", "Puntaje B", "Puntaje C", "Puntaje D", "Fecha"]];
+    users.forEach((u) => {
+      const hist = histories[u.id] || [];
+      hist.forEach((entry, i) => {
+        rows.push([
+          u.nombre || "",
+          u.cedula || "",
+          (u.genero || "").replace("_", " "),
+          i + 1,
+          entry.dominant || "",
+          entry.scores?.A ?? "",
+          entry.scores?.B ?? "",
+          entry.scores?.C ?? "",
+          entry.scores?.D ?? "",
+          entry.submittedAt ? new Date(entry.submittedAt).toLocaleString("es-CO") : "",
+        ]);
+      });
+    });
+    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "pruebas_perfiles.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportJSON = () => {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      users: users.map((u) => ({ ...u })),
+      histories: Object.fromEntries(users.map((u) => [u.id, histories[u.id] || []])),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "pruebas_perfiles.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImport = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text);
+      if (!payload.users || !payload.histories) {
+        alert("Archivo JSON inválido: debe contener 'users' e 'histories'.");
+        return;
+      }
+      // Merge users: load existing, add new ones (match by cedula to avoid duplicates)
+      const existingUsers = await loadUsers();
+      const existingCedulas = new Set(existingUsers.filter((u) => u.role === "user").map((u) => u.cedula));
+      const toAdd = payload.users.filter((u) => u.role === "user" && !existingCedulas.has(u.cedula));
+      const merged = [...existingUsers, ...toAdd];
+      await saveUsers(merged);
+      // Merge histories: append entries not already present (match by submittedAt)
+      for (const u of payload.users) {
+        if (u.role !== "user") continue;
+        const incomingHist = payload.histories[u.id] || [];
+        // Find the user id in the merged list (may differ if re-created)
+        const localUser = merged.find((m) => m.cedula === u.cedula && m.role === "user");
+        if (!localUser) continue;
+        const localHist = await loadHistory(localUser.id);
+        const existingDates = new Set(localHist.map((e) => e.submittedAt));
+        const newEntries = incomingHist.filter((e) => !existingDates.has(e.submittedAt));
+        const combinedHist = [...localHist, ...newEntries].sort((a, b) => new Date(a.submittedAt) - new Date(b.submittedAt));
+        storageSet(STORAGE_KEYS.HISTORY(localUser.id), combinedHist);
+        // Also ensure latest response reflects last completed entry
+        const lastCompleted = [...combinedHist].reverse().find((e) => e.completed);
+        if (lastCompleted) storageSet(STORAGE_KEYS.RESPONSES(localUser.id), JSON.stringify(lastCompleted));
+      }
+      alert(`Importación completada. Se agregaron ${toAdd.length} participante(s) nuevo(s).`);
+      e.target.value = "";
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      alert("Error al leer el archivo: " + err.message);
+    }
+  };
 
   if (loading) return <div style={{ padding: 48, textAlign: "center", color: "var(--text-muted)" }}>Cargando datos...</div>;
 
   const completed = users.filter((u) => responses[u.id]?.completed);
   const pending = users.length - completed.length;
 
-  // Role distribution
+  // Role distribution (from latest responses)
   const roleCount = { A: 0, B: 0, C: 0, D: 0 };
   completed.forEach((u) => {
     const r = responses[u.id]?.dominant;
@@ -1449,81 +2210,125 @@ function AdminDashboard({ onViewUser }) {
         </div>
       </div>
 
-      {completed.length > 0 && (
+      {/* Tab navigation */}
+      <div className="login-tabs" style={{ marginBottom: 28 }}>
+        <button className={`login-tab${activeTab === "participantes" ? " active" : ""}`} onClick={() => setActiveTab("participantes")}>
+          Participantes
+        </button>
+        <button className={`login-tab${activeTab === "todas" ? " active" : ""}`} onClick={() => setActiveTab("todas")}>
+          Todas las pruebas
+        </button>
+        <button className={`login-tab${activeTab === "grafica" ? " active" : ""}`} onClick={() => setActiveTab("grafica")}>
+          Gráfica de perfiles
+        </button>
+      </div>
+
+      {/* TAB: Participantes */}
+      {activeTab === "participantes" && (
         <>
-          <p className="section-title">Distribución por perfil dominante</p>
-          <div className="roles-overview">
-            {Object.entries(ROLES).map(([key, role]) => (
-              <div className="roles-overview-card" key={key} style={{ borderLeft: `4px solid ${role.color}` }}>
-                <div className="roles-overview-dot" style={{ background: role.color }} />
-                <div className="roles-overview-name" style={{ color: role.color }}>{role.name}</div>
-                <div className="roles-overview-count">{roleCount[key]}</div>
-                <div className="roles-overview-label">
-                  {completed.length > 0 ? Math.round((roleCount[key] / completed.length) * 100) : 0}% del total
-                </div>
+          {completed.length > 0 && (
+            <>
+              <p className="section-title">Distribución por perfil dominante</p>
+              <div className="roles-overview">
+                {Object.entries(ROLES).map(([key, role]) => (
+                  <div className="roles-overview-card" key={key} style={{ borderLeft: `4px solid ${role.color}` }}>
+                    <div className="roles-overview-dot" style={{ background: role.color }} />
+                    <div className="roles-overview-name" style={{ color: role.color }}>{role.name}</div>
+                    <div className="roles-overview-count">{roleCount[key]}</div>
+                    <div className="roles-overview-label">
+                      {completed.length > 0 ? Math.round((roleCount[key] / completed.length) * 100) : 0}% del total
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            </>
+          )}
+
+          <p className="section-title">Lista de participantes</p>
+          <div className="action-buttons-group">
+            <button className="btn-action-subtle generate" onClick={handleGenerateSampleData}>
+              Generar datos
+            </button>
+            <button className="btn-action-subtle clear" onClick={handleClearAllData}>
+              Limpiar datos
+            </button>
           </div>
+          {users.length === 0 ? (
+            <div className="empty-state">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+              <p>Aún no hay participantes registrados</p>
+            </div>
+          ) : (
+            <div className="users-table-wrap">
+              <table className="users-table">
+                <thead>
+                  <tr>
+                    <th>Nombre</th>
+                    <th>Cédula</th>
+                    <th>Género</th>
+                    <th>Estado</th>
+                    <th>Perfil dominante</th>
+                    <th>Puntaje</th>
+                    <th>Fecha</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((u) => {
+                    const resp = responses[u.id];
+                    const done = resp?.completed;
+                    const dom = resp?.dominant;
+                    const role = dom ? ROLES[dom] : null;
+                    return (
+                      <tr key={u.id} onClick={() => onViewUser(u, resp)} title="Ver detalle">
+                        <td><strong style={{ color: "var(--text)" }}>{u.nombre}</strong></td>
+                        <td style={{ color: "var(--text-muted)" }}>{u.cedula}</td>
+                        <td style={{ textTransform: "capitalize", color: "var(--text-muted)" }}>{u.genero?.replace("_", " ") || "—"}</td>
+                        <td>
+                          <span className={`status-badge ${done ? "completed" : "pending"}`}>
+                            {done ? "Completado" : "Pendiente"}
+                          </span>
+                        </td>
+                        <td>
+                          {role ? (
+                            <span className="role-badge" style={{ background: role.light, color: role.color, border: `1px solid ${role.border}` }}>
+                              {role.name}
+                            </span>
+                          ) : (
+                            <span style={{ color: "var(--text-light)", fontSize: "0.8rem" }}>Sin datos</span>
+                          )}
+                        </td>
+                        <td>
+                          {done && dom ? (
+                            <span style={{ fontWeight: 700, color: role.color }}>{resp.scores[dom]} pts</span>
+                          ) : "—"}
+                        </td>
+                        <td style={{ color: "var(--text-muted)" }}>
+                          {done ? new Date(resp.submittedAt).toLocaleDateString("es-CO") : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </>
       )}
 
-      <p className="section-title">Lista de participantes</p>
-      {users.length === 0 ? (
-        <div className="empty-state">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
-          <p>Aún no hay participantes registrados</p>
-        </div>
-      ) : (
-        <div className="users-table-wrap">
-          <table className="users-table">
-            <thead>
-              <tr>
-                <th>Participante</th>
-                <th>Usuario</th>
-                <th>Estado</th>
-                <th>Perfil dominante</th>
-                <th>Puntaje</th>
-                <th>Fecha</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u) => {
-                const resp = responses[u.id];
-                const done = resp?.completed;
-                const dom = resp?.dominant;
-                const role = dom ? ROLES[dom] : null;
-                return (
-                  <tr key={u.id} onClick={() => onViewUser(u, resp)} title="Ver detalle">
-                    <td><strong style={{ color: "var(--text)" }}>{u.name}</strong></td>
-                    <td style={{ color: "var(--text-muted)" }}>@{u.username}</td>
-                    <td>
-                      <span className={`status-badge ${done ? "completed" : "pending"}`}>
-                        {done ? "Completado" : "Pendiente"}
-                      </span>
-                    </td>
-                    <td>
-                      {role ? (
-                        <span className="role-badge" style={{ background: role.light, color: role.color, border: `1px solid ${role.border}` }}>
-                          {role.name}
-                        </span>
-                      ) : (
-                        <span style={{ color: "var(--text-light)", fontSize: "0.8rem" }}>Sin datos</span>
-                      )}
-                    </td>
-                    <td>
-                      {done && dom ? (
-                        <span style={{ fontWeight: 700, color: role.color }}>{resp.scores[dom]} pts</span>
-                      ) : "—"}
-                    </td>
-                    <td style={{ color: "var(--text-muted)" }}>
-                      {done ? new Date(resp.submittedAt).toLocaleDateString("es-CO") : "—"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+      {/* TAB: Todas las pruebas */}
+      {activeTab === "todas" && (
+        <AllTestsTab
+          users={users}
+          historiesByUser={histories}
+          onExportCSV={handleExportCSV}
+          onExportJSON={handleExportJSON}
+          onImport={handleImport}
+        />
+      )}
+
+      {/* TAB: Gráfica */}
+      {activeTab === "grafica" && (
+        <ProfileChart roleCount={roleCount} total={completed.length} />
       )}
     </div>
   );
@@ -1541,14 +2346,17 @@ function getScoreLevel(raw) {
 
 function UserDetailScreen({ user, response, onBack }) {
   const { scores, dominant, answers } = response;
-  const maxPossible = { A: 45, B: 45, C: 50, D: 45 };
+  const maxPossible = { A: 44, B: 44, C: 49, D: 44 };
   const domRole = ROLES[dominant];
 
-  const initials = user.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
+  const initials = user.nombre.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
 
-  // Group questions by category
+  // Group questions by category, excluyendo pregunta 1
   const grouped = { A: [], B: [], C: [], D: [] };
-  QUESTIONS.forEach((q, i) => grouped[q.category].push({ ...q, globalIndex: i + 1 }));
+  QUESTIONS.forEach((q, i) => {
+    if (q.id === 1) return; // Excluir pregunta 1
+    grouped[q.category].push({ ...q, globalIndex: i + 1 });
+  });
 
   return (
     <div className="detail-layout">
@@ -1563,10 +2371,12 @@ function UserDetailScreen({ user, response, onBack }) {
           {initials}
         </div>
         <div className="detail-info">
-          <h3>{user.name}</h3>
+          <h3>{user.nombre}</h3>
           <p>
-            @{user.username}&nbsp;&nbsp;·&nbsp;&nbsp;
-            Perfil dominante: <strong style={{ color: domRole.color }}>{domRole.name}</strong>
+            Cédula: {user.cedula}&nbsp;&nbsp;·&nbsp;&nbsp;
+            Género: <strong style={{ textTransform: "capitalize" }}>{user.genero?.replace("_", " ")}</strong>
+            &nbsp;&nbsp;·&nbsp;&nbsp;
+            Perfil: <strong style={{ color: domRole.color }}>{domRole.name}</strong>
             &nbsp;&nbsp;·&nbsp;&nbsp;
             {new Date(response.submittedAt).toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })}
           </p>
