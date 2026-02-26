@@ -1245,6 +1245,32 @@ function LoginScreen({ onLogin }) {
             </>
           ) : (
             <>
+              {/* Credenciales Admin Info Card */}
+              <div style={{
+                background: "linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)",
+                border: "2px solid #1976d2",
+                borderRadius: "12px",
+                padding: "20px",
+                marginBottom: 28,
+                display: "flex",
+                alignItems: "center",
+                gap: 16
+              }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1976d2" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2c6.627 0 12 5.373 12 12s-5.373 12-12 12S0 20.627 0 14 5.373 2 12 2z"/><path d="M12 6v6l4 2.464"/>
+                </svg>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1565c0", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+                    Credenciales de Administrador
+                  </div>
+                  <div style={{ fontSize: "0.9rem", color: "#1976d2", lineHeight: "1.5" }}>
+                    <strong>Usuario:</strong> <code style={{ background: "#ffffff", padding: "2px 6px", borderRadius: 4, fontFamily: "monospace" }}>admin</code>
+                    <br />
+                    <strong>Contraseña:</strong> <code style={{ background: "#ffffff", padding: "2px 6px", borderRadius: 4, fontFamily: "monospace" }}>admin123</code>
+                  </div>
+                </div>
+              </div>
+
               <div className="form-group">
                 <label className="form-label">Usuario</label>
                 <input
@@ -1708,10 +1734,7 @@ function ResultsScreen({ responseData, onRetake }) {
               fontWeight: 800,
               lineHeight: "1.2",
               letterSpacing: "-0.02em",
-              background: "linear-gradient(135deg, var(--primary) 0%, #0d47a1 100%)",
-              backgroundClip: "text",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent"
+              color: "#ffffff"
             }}>
               ¡Evaluación completada!
             </h2>
@@ -1720,7 +1743,7 @@ function ResultsScreen({ responseData, onRetake }) {
             <p style={{ 
               fontSize: "1rem", 
               lineHeight: "1.7", 
-              color: "var(--text-muted)", 
+              color: "#e8f0f9", 
               marginBottom: 40,
               fontWeight: 500
             }}>
@@ -1729,12 +1752,12 @@ function ResultsScreen({ responseData, onRetake }) {
 
             {/* Caja de información mejorada */}
             <div style={{ 
-              background: "linear-gradient(135deg, var(--primary-light) 0%, rgba(27,79,138,0.08) 100%)",
-              border: "2px solid var(--primary)",
+              background: "rgba(255, 255, 255, 0.12)",
+              border: "2px solid rgba(255, 255, 255, 0.25)",
               borderRadius: "16px", 
               padding: "32px 28px",
               marginBottom: 40,
-              boxShadow: "0 4px 24px rgba(27,79,138,0.12)",
+              boxShadow: "0 4px 24px rgba(0, 0, 0, 0.2)",
               backdropFilter: "blur(8px)"
             }}>
               <div style={{
@@ -1743,13 +1766,13 @@ function ResultsScreen({ responseData, onRetake }) {
                 alignItems: "flex-start",
                 marginBottom: 12
               }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2.5" style={{ flexShrink: 0, marginTop: 2 }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" style={{ flexShrink: 0, marginTop: 2 }}>
                   <circle cx="12" cy="12" r="10"></circle>
                   <path d="M12 8v4m0 4h.01"></path>
                 </svg>
                 <p style={{ 
                   margin: 0, 
-                  color: "var(--primary)", 
+                  color: "#ffffff", 
                   fontWeight: 700,
                   fontSize: "1.05rem",
                   lineHeight: "1.4"
@@ -1759,7 +1782,7 @@ function ResultsScreen({ responseData, onRetake }) {
               </div>
               <p style={{ 
                 margin: 0, 
-                color: "var(--text-muted)", 
+                color: "#d4e5f7", 
                 fontSize: "0.95rem",
                 lineHeight: "1.5",
                 paddingLeft: 32
