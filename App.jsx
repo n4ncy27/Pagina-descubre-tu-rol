@@ -199,14 +199,14 @@ function generateRandomAnswers() {
   return answers;
 }
 
-async function generateSampleData() {
+async function generateSampleData(count = 499) {
   const existingUsers = await loadUsers();
   const adminUser = existingUsers.find((u) => u.role === "admin");
   const existingParticipants = existingUsers.filter((u) => u.role === "user");
   
   const genders = ["masculino", "femenino", "otro", "prefiero_no_decir"];
   const newUsers = [];
-  for (let i = 0; i < 499; i++) {
+  for (let i = 0; i < count; i++) {
     newUsers.push({
       id: `user_${Date.now()}_${i}`,
       cedula: `${100000000 + i}`,
@@ -2064,12 +2064,160 @@ function AllTestsTab({ users, historiesByUser, onExportCSV, onExportJSON, onImpo
   );
 }
 
+// ─── GENERATE DATA MODAL ──────────────────────────────────────────────────────
+
+function GenerateDataModal({ isOpen, onClose, onConfirm }) {
+  const [quantity, setQuantity] = useState("499");
+  const [error, setError] = useState("");
+
+  const handleConfirm = () => {
+    const num = parseInt(quantity.trim(), 10);
+    if (!quantity.trim() || isNaN(num) || num <= 0) {
+      setError("Ingresa un número válido mayor a 0");
+      return;
+    }
+    if (num > 10000) {
+      setError("La cantidad máxima es 10,000");
+      return;
+    }
+    setError("");
+    onConfirm(num);
+    setQuantity("499");
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") handleConfirm();
+    if (e.key === "Escape") onClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div style={{
+      position: "fixed",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: "rgba(0, 0, 0, 0.5)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: 9999
+    }}>
+      <div style={{
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
+        borderRadius: "12px",
+        padding: "32px",
+        maxWidth: "400px",
+        width: "90%",
+        boxShadow: "0 20px 60px rgba(0, 0, 0, 0.3)"
+      }}>
+        <h3 style={{ margin: "0 0 8px", color: "var(--text)" }}>Generar datos de ejemplo</h3>
+        <p style={{ margin: "0 0 24px", color: "var(--text-muted)", fontSize: "0.9rem" }}>
+          ¿Cuántos participantes deseas generar?
+        </p>
+
+        <input
+          type="number"
+          value={quantity}
+          onChange={(e) => {
+            setQuantity(e.target.value);
+            setError("");
+          }}
+          onKeyDown={handleKeyDown}
+          placeholder="Ingresa la cantidad"
+          min="1"
+          max="10000"
+          style={{
+            width: "100%",
+            padding: "12px",
+            border: error ? "2px solid var(--danger, #d32f2f)" : "1px solid var(--border)",
+            borderRadius: "6px",
+            fontSize: "1rem",
+            marginBottom: error ? 8 : 24,
+            boxSizing: "border-box",
+            background: "var(--input-bg, #ffffff)",
+            color: "var(--text)"
+          }}
+          autoFocus
+        />
+
+        {error && (
+          <p style={{
+            margin: "0 0 24px",
+            color: "#d32f2f",
+            fontSize: "0.85rem",
+            fontWeight: 600
+          }}>
+            {error}
+          </p>
+        )}
+
+        <div style={{
+          display: "flex",
+          gap: 10
+        }}>
+          <button
+            onClick={onClose}
+            style={{
+              flex: 1,
+              padding: "10px 16px",
+              border: "1px solid var(--border)",
+              borderRadius: "6px",
+              background: "var(--surface)",
+              color: "var(--text)",
+              fontWeight: 600,
+              cursor: "pointer",
+              transition: "all 0.2s"
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = "var(--border)";
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = "var(--surface)";
+            }}
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleConfirm}
+            style={{
+              flex: 1,
+              padding: "10px 16px",
+              border: "none",
+              borderRadius: "6px",
+              background: "var(--primary)",
+              color: "white",
+              fontWeight: 600,
+              cursor: "pointer",
+              transition: "all 0.2s"
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.transform = "translateY(-2px)";
+              e.target.style.boxShadow = "0 4px 12px rgba(27, 79, 138, 0.3)";
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.transform = "translateY(0)";
+              e.target.style.boxShadow = "none";
+            }}
+          >
+            Generar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── ADMIN DASHBOARD ─────────────────────────────────────────────────────────
 
 function AdminDashboard({ onViewUser }) {
   const [users, setUsers] = useState([]);
   const [responses, setResponses] = useState({});
   const [histories, setHistories] = useState({});
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [activeTab, setActiveTab] = useState("participantes");
@@ -2093,11 +2241,14 @@ function AdminDashboard({ onViewUser }) {
     loadData();
   }, [refreshKey]);
 
-  const handleGenerateSampleData = async () => {
-    if (window.confirm("¿Generar 499 datos de ejemplo? Esto puede tomar unos segundos.")) {
-      await generateSampleData();
-      setRefreshKey((k) => k + 1);
-    }
+  const handleGenerateSampleData = () => {
+    setShowGenerateModal(true);
+  };
+
+  const handleConfirmGenerate = async (quantity) => {
+    setShowGenerateModal(false);
+    await generateSampleData(quantity);
+    setRefreshKey((k) => k + 1);
   };
 
   const handleClearAllData = async () => {
@@ -2204,7 +2355,13 @@ function AdminDashboard({ onViewUser }) {
   });
 
   return (
-    <div className="admin-layout">
+    <>
+      <GenerateDataModal
+        isOpen={showGenerateModal}
+        onClose={() => setShowGenerateModal(false)}
+        onConfirm={handleConfirmGenerate}
+      />
+      <div className="admin-layout">
       <div className="admin-header">
         <h2>Panel de <span style={{ color: "var(--primary)" }}>Administración</span></h2>
         <p>Resumen de participantes y resultados del cuestionario de perfil profesional</p>
@@ -2353,7 +2510,8 @@ function AdminDashboard({ onViewUser }) {
       {activeTab === "grafica" && (
         <ProfileChart roleCount={roleCount} total={completed.length} />
       )}
-    </div>
+      </div>
+    </>
   );
 }
 
