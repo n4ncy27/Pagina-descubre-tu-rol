@@ -2221,6 +2221,7 @@ function AdminDashboard({ onViewUser }) {
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [activeTab, setActiveTab] = useState("participantes");
+  const [successMessage, setSuccessMessage] = useState("");
 
   const loadData = async () => {
     setLoading(true);
@@ -2248,6 +2249,8 @@ function AdminDashboard({ onViewUser }) {
   const handleConfirmGenerate = async (quantity) => {
     setShowGenerateModal(false);
     await generateSampleData(quantity);
+    setSuccessMessage(`✓ Se generaron exitosamente ${quantity} participante${quantity !== 1 ? 's de' : ' de'} ejemplo.`);
+    setTimeout(() => setSuccessMessage(""), 4000);
     setRefreshKey((k) => k + 1);
   };
 
@@ -2361,6 +2364,47 @@ function AdminDashboard({ onViewUser }) {
         onClose={() => setShowGenerateModal(false)}
         onConfirm={handleConfirmGenerate}
       />
+
+      {/* Success Toast */}
+      {successMessage && (
+        <div style={{
+          position: "fixed",
+          top: 24,
+          left: "50%",
+          transform: "translateX(-50%)",
+          background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+          color: "white",
+          padding: "16px 24px",
+          borderRadius: "8px",
+          boxShadow: "0 10px 30px rgba(16, 185, 129, 0.3)",
+          fontSize: "0.95rem",
+          fontWeight: 600,
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          zIndex: 10000,
+          animation: "slideDown 0.3s ease-out"
+        }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+          {successMessage}
+        </div>
+      )}
+
+      <style>{`
+        @keyframes slideDown {
+          from {
+            opacity: 0;
+            transform: translateX(-50%) translateY(-20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+          }
+        }
+      `}</style>
+
       <div className="admin-layout">
       <div className="admin-header">
         <h2>Panel de <span style={{ color: "var(--primary)" }}>Administración</span></h2>
