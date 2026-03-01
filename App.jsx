@@ -1060,6 +1060,8 @@ function LoginScreen({ onLogin }) {
   const [tab, setTab] = useState("user");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showWelcomeToast, setShowWelcomeToast] = useState(false);
+  const [welcomeName, setWelcomeName] = useState("");
 
   // Participante: cédula, nombre, género
   const [cedula, setCedula] = useState("");
@@ -1096,7 +1098,13 @@ function LoginScreen({ onLogin }) {
         await saveUsers([...users, participant]);
       }
       
-      onLogin(participant);
+      // Show welcome toast
+      setWelcomeName(participant.nombre);
+      setShowWelcomeToast(true);
+      
+      setTimeout(() => {
+        onLogin(participant);
+      }, 1800);
     } catch (err) {
       setError("Error al conectar. Intenta de nuevo.");
     }
@@ -1114,7 +1122,13 @@ function LoginScreen({ onLogin }) {
         (u) => u.username === username.trim() && u.password === password && u.role === "admin"
       );
       if (found) {
-        onLogin(found);
+        // Show welcome toast
+        setWelcomeName("Administrador");
+        setShowWelcomeToast(true);
+        
+        setTimeout(() => {
+          onLogin(found);
+        }, 1800);
       } else {
         setError("Usuario o contraseña incorrectos.");
       }
@@ -1312,6 +1326,47 @@ function LoginScreen({ onLogin }) {
           )}
         </div>
       </div>
+
+      {/* Welcome Toast */}
+      {showWelcomeToast && (
+        <div style={{
+          position: "fixed",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          background: "rgba(27, 79, 138, 0.95)",
+          backdropFilter: "blur(10px)",
+          color: "white",
+          padding: "16px 28px",
+          borderRadius: "8px",
+          boxShadow: "0 8px 24px rgba(27, 79, 138, 0.15)",
+          fontSize: "0.95rem",
+          fontWeight: 500,
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          zIndex: 10000,
+          animation: "fadeIn 0.5s ease-out",
+          textAlign: "center",
+          border: "1px solid rgba(255, 255, 255, 0.1)"
+        }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.8 }}>
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+          <span>¡Bienvenido {welcomeName}!</span>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+      `}</style>
     </div>
   );
 }
@@ -1434,6 +1489,26 @@ function RegisterModal({ onClose, onRegistered }) {
 
 function WelcomeScreen({ user, existingResponse, onStart, onViewResults }) {
   const isCompleted = existingResponse?.completed;
+  const [showStartMessage, setShowStartMessage] = useState(false);
+  const [countdownValue, setCountdownValue] = useState(3);
+
+  const handleStartWithNotification = () => {
+    setShowStartMessage(true);
+    setCountdownValue(3);
+    
+    let count = 3;
+    const interval = setInterval(() => {
+      count--;
+      setCountdownValue(count);
+      
+      if (count === 0) {
+        clearInterval(interval);
+        setTimeout(() => {
+          onStart();
+        }, 300);
+      }
+    }, 1000);
+  };
 
   const infoCards = [
     {
@@ -1497,7 +1572,7 @@ function WelcomeScreen({ user, existingResponse, onStart, onViewResults }) {
 
         {/* Actions */}
         <div className="welcome-actions">
-          <button className="btn btn-primary btn-lg" onClick={onStart} style={{ flex: isCompleted ? "unset" : 1, justifyContent: "center" }}>
+          <button className="btn btn-primary btn-lg" onClick={handleStartWithNotification} style={{ flex: isCompleted ? "unset" : 1, justifyContent: "center" }}>
             {isCompleted ? "Responder de nuevo" : "Comenzar evaluación"}
           </button>
           {isCompleted && (
@@ -1508,6 +1583,63 @@ function WelcomeScreen({ user, existingResponse, onStart, onViewResults }) {
         </div>
 
       </div>
+
+      {/* Start Evaluation Toast */}
+      {showStartMessage && (
+        <div style={{
+          position: "fixed",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          background: "rgba(27, 79, 138, 0.92)",
+          backdropFilter: "blur(10px)",
+          color: "white",
+          padding: "28px 40px",
+          borderRadius: "8px",
+          boxShadow: "0 8px 32px rgba(27, 79, 138, 0.12)",
+          fontSize: "0.95rem",
+          fontWeight: 500,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 14,
+          zIndex: 10000,
+          animation: "fadeIn 0.4s ease-out",
+          textAlign: "center",
+          border: "1px solid rgba(255, 255, 255, 0.08)"
+        }}>
+          <div style={{
+            fontSize: "2.8rem",
+            fontWeight: 300,
+            lineHeight: 1,
+            letterSpacing: "-0.04em",
+            opacity: 0.8,
+            animation: "pulse 1s ease-in-out infinite"
+          }}>
+            {countdownValue}
+          </div>
+          <div style={{ fontSize: "0.9rem", opacity: 0.85 }}>Iniciando evaluación...</div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+        @keyframes pulse {
+          0%, 100% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0.7;
+          }
+        }
+      `}</style>
     </div>
   );
 }
@@ -2372,35 +2504,35 @@ function AdminDashboard({ onViewUser }) {
           top: 24,
           left: "50%",
           transform: "translateX(-50%)",
-          background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+          background: "rgba(27, 79, 138, 0.92)",
+          backdropFilter: "blur(10px)",
           color: "white",
-          padding: "16px 24px",
-          borderRadius: "8px",
-          boxShadow: "0 10px 30px rgba(16, 185, 129, 0.3)",
-          fontSize: "0.95rem",
-          fontWeight: 600,
+          padding: "12px 20px",
+          borderRadius: "6px",
+          boxShadow: "0 4px 16px rgba(27, 79, 138, 0.12)",
+          fontSize: "0.9rem",
+          fontWeight: 500,
           display: "flex",
           alignItems: "center",
-          gap: 10,
+          gap: 8,
           zIndex: 10000,
-          animation: "slideDown 0.3s ease-out"
+          animation: "fadeIn 0.3s ease-out",
+          border: "1px solid rgba(255, 255, 255, 0.08)"
         }}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ opacity: 0.8 }}>
             <polyline points="20 6 9 17 4 12"></polyline>
           </svg>
-          {successMessage}
+          <span style={{ opacity: 0.95 }}>{successMessage}</span>
         </div>
       )}
 
       <style>{`
-        @keyframes slideDown {
+        @keyframes fadeIn {
           from {
             opacity: 0;
-            transform: translateX(-50%) translateY(-20px);
           }
           to {
             opacity: 1;
-            transform: translateX(-50%) translateY(0);
           }
         }
       `}</style>
