@@ -2111,7 +2111,7 @@ function ProfileChart({ roleCount, total }) {
 
 // ─── ALL TESTS TAB ────────────────────────────────────────────────────────────
 
-function AllTestsTab({ users, historiesByUser, onExportCSV, onExportJSON, onImport }) {
+function AllTestsTab({ users, historiesByUser, onExportCSV, onImportCSV }) {
   const allTests = [];
   users.forEach((u) => {
     const hist = historiesByUser[u.id] || [];
@@ -2135,11 +2135,10 @@ function AllTestsTab({ users, historiesByUser, onExportCSV, onExportJSON, onImpo
             background: "var(--primary-light)", color: "var(--primary)", fontWeight: 600, fontSize: "0.8rem",
             cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.01em",
           }}>
-            Importar JSON
-            <input type="file" accept=".json" style={{ display: "none" }} onChange={onImport} />
+            Importar CSV
+            <input type="file" accept=".csv" style={{ display: "none" }} onChange={onImportCSV} />
           </label>
           <button className="btn-action-subtle generate" onClick={onExportCSV}>Exportar CSV</button>
-          <button className="btn-action-subtle generate" onClick={onExportJSON}>Exportar JSON</button>
         </div>
       </div>
 
@@ -2393,6 +2392,104 @@ function AdminDashboard({ onViewUser }) {
     }
   };
 
+  const handleImportCSV = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const lines = text.split("\n").filter((l) => l.trim());
+      if (lines.length < 2) {
+        alert("El archivo CSV está vacío o no tiene datos.");
+        return;
+      }
+      const parseCSVLine = (line) => {
+        const result = [];
+        let current = "";
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          if (ch === '"') {
+            if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+            else { inQuotes = !inQuotes; }
+          } else if (ch === "," && !inQuotes) {
+            result.push(current.trim());
+            current = "";
+          } else {
+            current += ch;
+          }
+        }
+        result.push(current.trim());
+        return result;
+      };
+      const headers = parseCSVLine(lines[0]);
+      const rows = lines.slice(1).map((l) => parseCSVLine(l));
+      const byUser = {};
+      rows.forEach((row) => {
+        const obj = {};
+        headers.forEach((h, i) => (obj[h] = row[i] || ""));
+        const cedula = obj["Cedula"];
+        if (!cedula) return;
+        if (!byUser[cedula]) {
+          byUser[cedula] = {
+            nombre: obj["Nombre"],
+            genero: (obj["Genero"] || "").replace(" ", "_"),
+            entries: [],
+          };
+        }
+        byUser[cedula].entries.push({
+          dominant: obj["Perfil"] || "",
+          scores: {
+            A: Number(obj["Puntaje A"]) || 0,
+            B: Number(obj["Puntaje B"]) || 0,
+            C: Number(obj["Puntaje C"]) || 0,
+            D: Number(obj["Puntaje D"]) || 0,
+          },
+          completed: true,
+          submittedAt: (() => {
+            const raw = obj["Fecha"];
+            if (!raw) return new Date().toISOString();
+            const d = new Date(raw);
+            return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+          })(),
+        });
+      });
+      const existingUsers = await loadUsers();
+      const updatedUsers = [...existingUsers];
+      let addedUsers = 0;
+      let addedEntries = 0;
+      for (const [cedula, data] of Object.entries(byUser)) {
+        let localUser = existingUsers.find((u) => u.cedula === cedula && u.role === "user");
+        if (!localUser) {
+          localUser = {
+            id: `user_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+            cedula,
+            nombre: data.nombre,
+            genero: data.genero,
+            role: "user",
+          };
+          updatedUsers.push(localUser);
+          addedUsers++;
+        }
+        const localHist = await loadHistory(localUser.id);
+        const existingDates = new Set(localHist.map((entry) => entry.submittedAt));
+        const newEntries = data.entries.filter((entry) => !existingDates.has(entry.submittedAt));
+        addedEntries += newEntries.length;
+        const combinedHist = [...localHist, ...newEntries].sort(
+          (a, b) => new Date(a.submittedAt) - new Date(b.submittedAt)
+        );
+        storageSet(STORAGE_KEYS.HISTORY(localUser.id), JSON.stringify(combinedHist));
+        const lastCompleted = [...combinedHist].reverse().find((entry) => entry.completed);
+        if (lastCompleted) storageSet(STORAGE_KEYS.RESPONSES(localUser.id), JSON.stringify(lastCompleted));
+      }
+      await saveUsers(updatedUsers);
+      alert(`Importación completada. Se agregaron ${addedUsers} participante(s) y ${addedEntries} registro(s) nuevo(s).`);
+      e.target.value = "";
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      alert("Error al leer el archivo CSV: " + err.message);
+    }
+  };
+
   const handleExportCSV = () => {
     const rows = [["Nombre", "Cedula", "Genero", "Intento", "Perfil", "Puntaje A", "Puntaje B", "Puntaje C", "Puntaje D", "Fecha"]];
     users.forEach((u) => {
@@ -2408,7 +2505,7 @@ function AdminDashboard({ onViewUser }) {
           entry.scores?.B ?? "",
           entry.scores?.C ?? "",
           entry.scores?.D ?? "",
-          entry.submittedAt ? new Date(entry.submittedAt).toLocaleString("es-CO") : "",
+          entry.submittedAt || "",
         ]);
       });
     });
@@ -2677,8 +2774,7 @@ function AdminDashboard({ onViewUser }) {
           users={users}
           historiesByUser={histories}
           onExportCSV={handleExportCSV}
-          onExportJSON={handleExportJSON}
-          onImport={handleImport}
+          onImportCSV={handleImportCSV}
         />
       )}
 
